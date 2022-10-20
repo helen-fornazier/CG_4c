@@ -1,11 +1,19 @@
-#define SET_MAX_RPM 8000
-//#define SET_MAX_RPM 6000
+//#define SET_MAX_RPM 8000
+#define SET_MAX_RPM 6000
 
 #define SCALE_OFFSET_STEP 0
 #define STEP_DELAY 1200
 
 #define CALIB_STEPS 1984
 #define SCALE_STEPS 1500
+
+#define PHASE(p) (p % 256)
+
+inline unsigned int POS(int pos) {
+   if (pos < 0) return 0;
+   if (pos > SCALE_STEPS) return SCALE_STEPS;
+   return pos;
+}
 
 int PWM1_PIN = 3;  // verde
 int PWM2_PIN = 5;  // azul
@@ -14,6 +22,7 @@ int PHASE2_PIN = 7; // roxo
 
 volatile uint32_t rot; // rotation count
 unsigned long measureTime = 0;
+unsigned int g_current_pos = 0;
 
 const uint8_t phase[256][4] = {
                            {0,0,1,0},
@@ -273,29 +282,58 @@ const uint8_t phase[256][4] = {
                            {1,95,1,1},
                            {1,100,1,1}};
 
-
+// return position equivalent from 0 to SCALE_STEPS
 unsigned int convert_rpm_to_pos(unsigned int rpm) {
-   // regra de 3, (255 - SCALE_OFFSET_STEP -> SET_MAX_RPM)
-   unsigned int pos = ((255 - SCALE_OFFSET_STEP) * (rpm / SET_MAX_RPM)) + SCALE_OFFSET_STEP;
-   return pos > 255 ? 255 : pos;
+   // regra de 3, (SCALE_STEPS - SCALE_OFFSET_STEP -> SET_MAX_RPM)
+   //unsigned int pos = POS(((SCALE_STEPS - SCALE_OFFSET_STEP) * (rpm / SET_MAX_RPM)) + SCALE_OFFSET_STEP);
+   unsigned int pos = rpm*0.25;
+
+   //Serial.print("convert_rpm_to_pos:");
+   //Serial.print(rpm);
+   //Serial.print(":");
+   //Serial.print(pos);
+   return pos;
 }
 
-void set_pos(unsigned int pos) {
-   //Serial.print("set_pos:");
-   //Serial.println(pos);
+void set_phase(unsigned int phase_idx) {
+   //Serial.print("set_phase:");
+   //Serial.println(phase_idx);
 
    // regra de 3, 100 -> 255, val -> x
-   uint8_t pwm1_val = phase[pos][1] * 255 / 100;
+   uint8_t pwm1_val = phase[phase_idx][1] * 255 / 100;
    analogWrite(PWM1_PIN, pwm1_val);
-   digitalWrite(PHASE1_PIN, phase[pos][0]);
+   digitalWrite(PHASE1_PIN, phase[phase_idx][0]);
 
-   uint8_t pwm2_val = phase[pos][3] * 255 / 100;
+   uint8_t pwm2_val = phase[phase_idx][3] * 255 / 100;
    analogWrite(PWM2_PIN, pwm2_val);
-   digitalWrite(PHASE2_PIN, phase[pos][2]);
+   digitalWrite(PHASE2_PIN, phase[phase_idx][2]);
 }
 
-uint16_t cph = 0;
+unsigned int get_phase(int pos) {
+   return pos % 256;
+}
+
+bool go_to_rpm(unsigned int rpm) {
+   unsigned int pos = convert_rpm_to_pos(rpm);
+   unsigned int small_pos;
+
+   if (pos == g_current_pos)
+       return true;
+
+   if (pos > g_current_pos)
+      small_pos = POS(g_current_pos + 1);
+   else
+      small_pos = POS(g_current_pos - 1);
+
+   delayMicroseconds(STEP_DELAY);
+   set_phase(PHASE(small_pos));
+   g_current_pos = small_pos;
+
+   return pos == g_current_pos;
+}
+
 void ustep(int dir) {
+   static uint16_t cph = 0;
 
    if (dir) {
       if (cph < 255) cph++;
@@ -305,7 +343,7 @@ void ustep(int dir) {
       else cph = 255;
    }
 
-   set_pos(cph);
+   set_phase(cph);
 }
 
 void calibrate() {
@@ -317,20 +355,6 @@ void calibrate() {
    for (int i = 0; i < CALIB_STEPS; i++) {
       delayMicroseconds(STEP_DELAY);
       ustep(0);
-   }
-}
-
-void varredura() {
-   while(1) {
-      for (int i = 0; i < 1500; i++) {
-         delayMicroseconds(STEP_DELAY);
-         ustep(1);
-      }
-
-      for (int i = 0; i < 1500; i++) {
-         delayMicroseconds(STEP_DELAY);
-         ustep(0);
-      }
    }
 }
 
@@ -347,8 +371,6 @@ void setup() {
    Serial.println("CG_4c 1.0");
 
    calibrate();
-
-   varredura();
 }
 
 void addRotation() {
@@ -356,6 +378,33 @@ void addRotation() {
 }
 
 void loop() {
+  Serial.println("-----------------------");
+  Serial.println("goint to 3000");
+  while(!go_to_rpm(3000));
+  delay(2500);
+
+  Serial.println("going to 4500");
+  while(!go_to_rpm(4500));
+  delay(2500);
+
+  Serial.println("going to 900");
+  while(!go_to_rpm(900));
+  delay(2500);
+
+  Serial.println("going to 2000");
+  while(!go_to_rpm(2000));
+  delay(2500);
+
+  Serial.println("going to 5500");
+  while(!go_to_rpm(5500));
+  delay(2500);
+
+  Serial.println("going to 500");
+  while(!go_to_rpm(500));
+  delay(2500);
+
+  return;
+
   if (!rot) return;
   //unsigned int lapsed_time = millis() - measureTime;
   uint32_t rpm = ((rot * 60000)/2) / (millis() - measureTime);
