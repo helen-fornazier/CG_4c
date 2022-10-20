@@ -291,6 +291,8 @@ bool go_to_rpm_dir(unsigned int rpm) {
    static unsigned int old_pos = 0;
    unsigned int new_pos = convert_rpm_to_pos(rpm);
 
+   Serial.println("go_to_rpm_dir");
+
    if (old_pos == new_pos)
       return true;
 
@@ -300,11 +302,13 @@ bool go_to_rpm_dir(unsigned int rpm) {
    else
       new_pos = old_pos + 1;
 
+   old_pos = new_pos;
    set_pos(new_pos);
    return false;
 }
 
 void calibrate() {
+   Serial.println("calibrate 1");
    while(!go_to_rpm_dir(SET_MAX_RPM + 1000));
    while(!go_to_rpm_dir(0));
 }
@@ -316,12 +320,15 @@ void setup() {
    pinMode(PHASE1_PIN, OUTPUT); // configura pino como saída
    pinMode(PHASE2_PIN, OUTPUT); // configura pino como saída
 
-   calibrate();
-
    attachInterrupt(0, addRotation, FALLING);  //could also work with RISING
    Serial.begin(115200);
    delay(2900);
    Serial.println("CG_4c 1.0");
+
+   calibrate();
+
+   set_pos(255);
+
 }
 
 void addRotation() {
@@ -329,15 +336,16 @@ void addRotation() {
 }
 
 void loop() {
+  if (!rot) return;
   //unsigned int lapsed_time = millis() - measureTime;
   uint32_t rpm = ((rot * 60000)/2) / (millis() - measureTime);
-  rot = 0;
   measureTime = millis();
   interrupts();
   Serial.print(rpm);
   Serial.print(':');
   Serial.println(rot);
-  go_to_rpm_dir(rpm);
+  rot = 0;
+  //go_to_rpm_dir(rpm);
 }
 
 /*
