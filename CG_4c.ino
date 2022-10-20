@@ -1,7 +1,7 @@
 #define SET_MAX_RPM 8000
 //#define SET_MAX_RPM 6000
 
-#define SCALE_OFFSET_STEP 2
+#define SCALE_OFFSET_STEP 0
 #define STEP_DELAY 1200
 
 int PWM1_PIN = 3;  // verde
@@ -273,10 +273,15 @@ const uint8_t phase[256][4] = {
 
 unsigned int convert_rpm_to_pos(unsigned int rpm) {
    // regra de 3, (255 - SCALE_OFFSET_STEP -> SET_MAX_RPM)
-   return rpm * (255 - SCALE_OFFSET_STEP) / SET_MAX_RPM + SCALE_OFFSET_STEP;
+   unsigned int pos = ((255 - SCALE_OFFSET_STEP) * (rpm / SET_MAX_RPM)) + SCALE_OFFSET_STEP;
+   return pos > 255 ? 255 : pos;
 }
 
 void set_pos(unsigned int pos) {
+
+   Serial.print("set_pos:");
+   Serial.println(pos);
+
    // regra de 3, 100 -> 255, val -> x
    uint8_t pwm2_val = phase[pos][1] * 255 / 100;
    analogWrite(PWM2_PIN, pwm2_val);
@@ -291,7 +296,9 @@ bool go_to_rpm_dir(unsigned int rpm) {
    static unsigned int old_pos = 0;
    unsigned int new_pos = convert_rpm_to_pos(rpm);
 
-   Serial.println("go_to_rpm_dir");
+   Serial.print("go_to_rpm_dir:");
+   Serial.println(rpm);
+   Serial.println(new_pos);
 
    if (old_pos == new_pos)
       return true;
@@ -302,8 +309,8 @@ bool go_to_rpm_dir(unsigned int rpm) {
    else
       new_pos = old_pos + 1;
 
-   old_pos = new_pos;
    set_pos(new_pos);
+   old_pos = new_pos;
    return false;
 }
 
