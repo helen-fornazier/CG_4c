@@ -1,13 +1,15 @@
-//#define SET_MAX_RPM 8000
-#define SET_MAX_RPM 6000
 
-#define SCALE_OFFSET_STEP 0
+
+#define SCALE_STEPS 1500 // ao mudar este valor, atualizar POS_RPM_RATE abaixo
+#define CALIB_STEPS (SCALE_STEPS + 400) // valor a mais de varredura de calibração
+
+#define SET_MAX_RPM 6000 // ao mudar este valor, atualizar POS_RPM_RATE abaixo
 #define STEP_DELAY 1200
 
-#define CALIB_STEPS 1984
-#define SCALE_STEPS 1500
+//#define POS_RPM_RATE ((SCALE_STEPS/SET_MAX_RPM))
+#define POS_RPM_RATE (0.25) // compilador não está colaborando, fazendo a conta na mão
 
-#define PHASE(p) (p % 256)
+#define PHASE_RESOLUTION 256
 
 inline unsigned int POS(int pos) {
    if (pos < 0) return 0;
@@ -20,11 +22,11 @@ int PWM2_PIN = 5;  // azul
 int PHASE1_PIN = 6; //amarelo
 int PHASE2_PIN = 7; // roxo
 
-volatile uint32_t rot = 0; // rotation count
-unsigned long measureTime = 0;
+volatile uint32_t g_rot = 0; // rotation count
+unsigned long g_measureTime = 0;
 unsigned int g_current_pos = 0;
 
-const uint8_t phase[256][4] = {
+const uint8_t phase[PHASE_RESOLUTION][4] = {
                            {0,0,1,0},
                            {0,2,1,1},
                            {0,4,1,1},
@@ -283,19 +285,13 @@ const uint8_t phase[256][4] = {
                            {1,100,1,1}};
 
 // return position equivalent from 0 to SCALE_STEPS
-unsigned int convert_rpm_to_pos(unsigned int rpm) {
-   // regra de 3, (SCALE_STEPS - SCALE_OFFSET_STEP -> SET_MAX_RPM)
-   //unsigned int pos = POS(((SCALE_STEPS - SCALE_OFFSET_STEP) * (rpm / SET_MAX_RPM)) + SCALE_OFFSET_STEP);
-   unsigned int pos = rpm*0.25;
-
-   //Serial.print("convert_rpm_to_pos:");
-   //Serial.print(rpm);
-   //Serial.print(":");
-   //Serial.print(pos);
-   return pos;
+inline unsigned int convert_rpm_to_pos(unsigned int rpm) {
+    return rpm*POS_RPM_RATE;
 }
 
 void set_phase(unsigned int phase_idx) {
+   phase_idx = phase_idx % PHASE_RESOLUTION;
+
    Serial.print("set_phase:");
    Serial.println(phase_idx);
 
@@ -309,11 +305,8 @@ void set_phase(unsigned int phase_idx) {
    digitalWrite(PHASE2_PIN, phase[phase_idx][2]);
 }
 
-unsigned int get_phase(int pos) {
-   return pos % 256;
-}
-
-bool go_to_rpm(unsigned int rpm) {
+// make one step torwards rpm position
+bool go_to_rpm_dir(unsigned int rpm) {
    unsigned int pos = convert_rpm_to_pos(rpm);
    unsigned int small_pos;
 
@@ -326,35 +319,22 @@ bool go_to_rpm(unsigned int rpm) {
       small_pos = POS(g_current_pos - 1);
 
    delayMicroseconds(STEP_DELAY);
-   set_phase(PHASE(small_pos));
+   set_phase(small_pos);
    g_current_pos = small_pos;
 
    return pos == g_current_pos;
 }
 
-void ustep(int dir) {
-   static uint16_t cph = 0;
-
-   if (dir) {
-      if (cph < 255) cph++;
-      else cph = 0;
-   } else {
-        if (cph > 0) cph--;
-      else cph = 255;
-   }
-
-   set_phase(cph);
-}
-
 void calibrate() {
-   for (int i = 0; i < CALIB_STEPS; i++) {
+   unsigned int i;
+   for (i = 0; i < CALIB_STEPS; i++) {
       delayMicroseconds(400);
-      ustep(1);
+      set_phase(i);
    }
 
-   for (int i = 0; i < CALIB_STEPS; i++) {
+   while(i--) {
       delayMicroseconds(400);
-      ustep(0);
+      set_phase(i);
    }
 }
 
@@ -366,8 +346,8 @@ void setup() {
    pinMode(PHASE2_PIN, OUTPUT); // configura pino como saída
 
    attachInterrupt(0, addRotation, FALLING);  //could also work with RISING
+
    Serial.begin(115200);
-   delay(2900);
    Serial.println("CG_4c 1.0");
 
    calibrate();
@@ -377,7 +357,7 @@ unsigned long int last_interrupt_time = 0;
 unsigned long int last_interrupt_time_diff = 0;
 
 void addRotation() {
-  rot++;
+  g_rot++;
 
   unsigned int now = millis();
   last_interrupt_time_diff = now - last_interrupt_time;
@@ -385,35 +365,27 @@ void addRotation() {
 
 }
 
-uint32_t g_current_rpm = 0;
 
 void loop() {
-  go_to_rpm(g_current_rpm);
+  static uint32_t current_rpm = 0;
+  go_to_rpm_dir(current_rpm);
 
-  unsigned int freq =  1000/last_interrupt_time_diff;
-  unsigned int my_rpm = freq*1000/33;
-
-  if (!rot) return;
-
-  unsigned int rot_ = rot;
+  unsigned int rot_ = g_rot;
   unsigned int current_time = millis();
-  unsigned int lapsed_time = current_time - measureTime;
-  if (lapsed_time < 500) return;
+  unsigned int lapsed_time = current_time - g_measureTime;
+  if (lapsed_time < 100) return;
+  g_rot = 0;
+  g_measureTime = current_time;
 
+  current_rpm = ((rot_ * 60000)/2) / (lapsed_time);
 
-  g_current_rpm = ((rot_ * 60000)/2) / (lapsed_time);
-  measureTime = current_time;
   interrupts();
-  Serial.print("g_current_rpm:");
-  Serial.print(g_current_rpm);
-  Serial.print(':');
-  Serial.print("my_rpm:");
-  Serial.print(my_rpm);
+  Serial.print("current_rpm:");
+  Serial.print(current_rpm);
   Serial.print(':');
   Serial.print(rot_);
   Serial.print(':');
   Serial.println(lapsed_time);
-  rot = 0;
 }
 
 /*
