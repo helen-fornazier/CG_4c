@@ -4,6 +4,9 @@
 #define SCALE_OFFSET_STEP 0
 #define STEP_DELAY 1200
 
+#define CALIB_STEPS 1984
+#define SCALE_STEPS 1500
+
 int PWM1_PIN = 3;  // verde
 int PWM2_PIN = 5;  // azul
 int PHASE1_PIN = 6; //amarelo
@@ -278,46 +281,57 @@ unsigned int convert_rpm_to_pos(unsigned int rpm) {
 }
 
 void set_pos(unsigned int pos) {
-
-   Serial.print("set_pos:");
-   Serial.println(pos);
+   //Serial.print("set_pos:");
+   //Serial.println(pos);
 
    // regra de 3, 100 -> 255, val -> x
-   uint8_t pwm2_val = phase[pos][1] * 255 / 100;
-   analogWrite(PWM2_PIN, pwm2_val);
+   uint8_t pwm1_val = phase[pos][1] * 255 / 100;
+   analogWrite(PWM1_PIN, pwm1_val);
    digitalWrite(PHASE1_PIN, phase[pos][0]);
 
-   uint8_t pwm1_val = phase[pos][3] * 255 / 100;
-   analogWrite(PWM1_PIN, pwm1_val);
+   uint8_t pwm2_val = phase[pos][3] * 255 / 100;
+   analogWrite(PWM2_PIN, pwm2_val);
    digitalWrite(PHASE2_PIN, phase[pos][2]);
 }
 
-bool go_to_rpm_dir(unsigned int rpm) {
-   static unsigned int old_pos = 0;
-   unsigned int new_pos = convert_rpm_to_pos(rpm);
+uint16_t cph = 0;
+void ustep(int dir) {
 
-   Serial.print("go_to_rpm_dir:");
-   Serial.println(rpm);
-   Serial.println(new_pos);
+   if (dir) {
+      if (cph < 255) cph++;
+      else cph = 0;
+   } else {
+        if (cph > 0) cph--;
+      else cph = 255;
+   }
 
-   if (old_pos == new_pos)
-      return true;
-
-   delayMicroseconds(STEP_DELAY);
-   if (new_pos < old_pos)
-      new_pos = old_pos - 1;
-   else
-      new_pos = old_pos + 1;
-
-   set_pos(new_pos);
-   old_pos = new_pos;
-   return false;
+   set_pos(cph);
 }
 
 void calibrate() {
-   Serial.println("calibrate 1");
-   while(!go_to_rpm_dir(SET_MAX_RPM + 1000));
-   while(!go_to_rpm_dir(0));
+   for (int i = 0; i < CALIB_STEPS; i++) {
+      delayMicroseconds(STEP_DELAY);
+      ustep(1);
+   }
+
+   for (int i = 0; i < CALIB_STEPS; i++) {
+      delayMicroseconds(STEP_DELAY);
+      ustep(0);
+   }
+}
+
+void varredura() {
+   while(1) {
+      for (int i = 0; i < 1500; i++) {
+         delayMicroseconds(STEP_DELAY);
+         ustep(1);
+      }
+
+      for (int i = 0; i < 1500; i++) {
+         delayMicroseconds(STEP_DELAY);
+         ustep(0);
+      }
+   }
 }
 
 void setup() {
@@ -334,8 +348,7 @@ void setup() {
 
    calibrate();
 
-   set_pos(255);
-
+   varredura();
 }
 
 void addRotation() {
