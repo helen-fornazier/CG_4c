@@ -20,7 +20,7 @@ int PWM2_PIN = 5;  // azul
 int PHASE1_PIN = 6; //amarelo
 int PHASE2_PIN = 7; // roxo
 
-volatile uint32_t rot; // rotation count
+volatile uint32_t rot = 0; // rotation count
 unsigned long measureTime = 0;
 unsigned int g_current_pos = 0;
 
@@ -296,8 +296,8 @@ unsigned int convert_rpm_to_pos(unsigned int rpm) {
 }
 
 void set_phase(unsigned int phase_idx) {
-   //Serial.print("set_phase:");
-   //Serial.println(phase_idx);
+   Serial.print("set_phase:");
+   Serial.println(phase_idx);
 
    // regra de 3, 100 -> 255, val -> x
    uint8_t pwm1_val = phase[phase_idx][1] * 255 / 100;
@@ -348,12 +348,12 @@ void ustep(int dir) {
 
 void calibrate() {
    for (int i = 0; i < CALIB_STEPS; i++) {
-      delayMicroseconds(STEP_DELAY);
+      delayMicroseconds(400);
       ustep(1);
    }
 
    for (int i = 0; i < CALIB_STEPS; i++) {
-      delayMicroseconds(STEP_DELAY);
+      delayMicroseconds(400);
       ustep(0);
    }
 }
@@ -373,48 +373,47 @@ void setup() {
    calibrate();
 }
 
+unsigned long int last_interrupt_time = 0;
+unsigned long int last_interrupt_time_diff = 0;
+
 void addRotation() {
   rot++;
+
+  unsigned int now = millis();
+  last_interrupt_time_diff = now - last_interrupt_time;
+  last_interrupt_time = now;
+
 }
 
+uint32_t g_current_rpm = 0;
+
 void loop() {
-  Serial.println("-----------------------");
-  Serial.println("goint to 3000");
-  while(!go_to_rpm(3000));
-  delay(2500);
+  go_to_rpm(g_current_rpm);
 
-  Serial.println("going to 4500");
-  while(!go_to_rpm(4500));
-  delay(2500);
-
-  Serial.println("going to 900");
-  while(!go_to_rpm(900));
-  delay(2500);
-
-  Serial.println("going to 2000");
-  while(!go_to_rpm(2000));
-  delay(2500);
-
-  Serial.println("going to 5500");
-  while(!go_to_rpm(5500));
-  delay(2500);
-
-  Serial.println("going to 500");
-  while(!go_to_rpm(500));
-  delay(2500);
-
-  return;
+  unsigned int freq =  1000/last_interrupt_time_diff;
+  unsigned int my_rpm = freq*1000/33;
 
   if (!rot) return;
-  //unsigned int lapsed_time = millis() - measureTime;
-  uint32_t rpm = ((rot * 60000)/2) / (millis() - measureTime);
-  measureTime = millis();
+
+  unsigned int rot_ = rot;
+  unsigned int current_time = millis();
+  unsigned int lapsed_time = current_time - measureTime;
+  if (lapsed_time < 500) return;
+
+
+  g_current_rpm = ((rot_ * 60000)/2) / (lapsed_time);
+  measureTime = current_time;
   interrupts();
-  Serial.print(rpm);
+  Serial.print("g_current_rpm:");
+  Serial.print(g_current_rpm);
   Serial.print(':');
-  Serial.println(rot);
+  Serial.print("my_rpm:");
+  Serial.print(my_rpm);
+  Serial.print(':');
+  Serial.print(rot_);
+  Serial.print(':');
+  Serial.println(lapsed_time);
   rot = 0;
-  //go_to_rpm_dir(rpm);
 }
 
 /*
