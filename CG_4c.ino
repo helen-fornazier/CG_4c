@@ -1,20 +1,18 @@
+#define SET_MAX_RPM 8000
+//#define SET_MAX_RPM 6000
 
-uint16_t apos=0;
-uint16_t cph=0;
-boolean stp_busy=false;
+#define SCALE_OFFSET_STEP 2
+#define STEP_DELAY 1200
 
 int PWM1_PIN = 3;  // verde
 int PWM2_PIN = 5;  // azul
 int PHASE1_PIN = 6; //amarelo
 int PHASE2_PIN = 7; // roxo
 
-const int In_Auxiliar = 15;  // interrupção 
 volatile uint32_t rot; // rotation count
 unsigned long measureTime = 0;
 
-
- const  uint8_t phase[256][4] = {
- // int phase[256][4] = {
+const uint8_t phase[256][4] = {
                            {0,0,1,0},
                            {0,2,1,1},
                            {0,4,1,1},
@@ -270,48 +268,45 @@ unsigned long measureTime = 0;
                            {1,91,1,1},
                            {1,93,1,1},
                            {1,95,1,1},
-                           {1,100,1,1}  };
+                           {1,100,1,1}};
 
-void ustep (int dir) {
 
-   if (dir) {
-      if (cph < 255) cph++;
-      else cph = 0;
-   } else {
-        if (cph > 0) cph--;
-      else cph = 255;
-   }
-
-   // regra de 3, 100 -> 255, val -> x
-   uint8_t pwm2_val = phase[cph][1] * 255 / 100;
-   analogWrite(PWM2_PIN, pwm2_val);
-   digitalWrite(PHASE1_PIN, phase[cph][0]);
-
-   uint8_t pwm1_val = phase[cph][3] * 255 / 100;
-   analogWrite(PWM1_PIN, pwm1_val);
-   digitalWrite(PHASE2_PIN, phase[cph][2]);
+unsigned int convert_rpm_to_pos(unsigned int rpm) {
+   // regra de 3, (255 - SCALE_OFFSET_STEP -> SET_MAX_RPM)
+   return rpm * (255 - SCALE_OFFSET_STEP) / SET_MAX_RPM + SCALE_OFFSET_STEP;
 }
 
-void gopos (unsigned int pos) {
-   unsigned int steps=0;
-   int dir=0;
+void set_pos(unsigned int pos) {
+   // regra de 3, 100 -> 255, val -> x
+   uint8_t pwm2_val = phase[pos][1] * 255 / 100;
+   analogWrite(PWM2_PIN, pwm2_val);
+   digitalWrite(PHASE1_PIN, phase[pos][0]);
 
-      while (apos != pos) {
-           if (pos > apos) {
-              steps = pos - apos;
-            dir = 1;
-            apos++;
-         } else if (pos < apos) {
-            steps = apos - pos;
-            dir = 0;
-            apos--;
-         } else steps = 0;
+   uint8_t pwm1_val = phase[pos][3] * 255 / 100;
+   analogWrite(PWM1_PIN, pwm1_val);
+   digitalWrite(PHASE2_PIN, phase[pos][2]);
+}
 
-         if (steps > 0) {
-            ustep(dir);
-            delayMicroseconds(1200);  //400ms
-         }
-      }
+bool go_to_rpm_dir(unsigned int rpm) {
+   static unsigned int old_pos = 0;
+   unsigned int new_pos = convert_rpm_to_pos(rpm);
+
+   if (old_pos == new_pos)
+      return true;
+
+   delayMicroseconds(STEP_DELAY);
+   if (new_pos < old_pos)
+      new_pos = old_pos - 1;
+   else
+      new_pos = old_pos + 1;
+
+   set_pos(new_pos);
+   return false;
+}
+
+void calibrate() {
+   while(!go_to_rpm_dir(SET_MAX_RPM + 1000));
+   while(!go_to_rpm_dir(0));
 }
 
 void setup() {
@@ -321,13 +316,12 @@ void setup() {
    pinMode(PHASE1_PIN, OUTPUT); // configura pino como saída
    pinMode(PHASE2_PIN, OUTPUT); // configura pino como saída
 
-   gopos(1984);
-   gopos(0);
-   attachInterrupt(0, addRotation, FALLING);  //RISING
-    Serial.begin(115200);
-    delay(2900);
-    int rpm2 = 100;
-    Serial.println(rpm2);
+   calibrate();
+
+   attachInterrupt(0, addRotation, FALLING);  //could also work with RISING
+   Serial.begin(115200);
+   delay(2900);
+   Serial.println("CG_4c 1.0");
 }
 
 void addRotation() {
@@ -335,18 +329,15 @@ void addRotation() {
 }
 
 void loop() {
-
+  //unsigned int lapsed_time = millis() - measureTime;
   uint32_t rpm = ((rot * 60000)/2) / (millis() - measureTime);
   rot = 0;
   measureTime = millis();
   interrupts();
-  Serial.println(rpm);
-  delay(30);
- /* // put your main code here, to run repeatedly:
-   gopos(1984);
-   delay(900);
-   gopos(200);
-   delay(900); */  
+  Serial.print(rpm);
+  Serial.print(':');
+  Serial.println(rot);
+  go_to_rpm_dir(rpm);
 }
 
 /*
@@ -359,5 +350,3 @@ void loop() {
 7000  231 HZ    
 8000  264 HZ    
 */
-
- 
