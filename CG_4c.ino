@@ -1,13 +1,13 @@
 
 
-#define SCALE_STEPS 1500 // ao mudar este valor, atualizar POS_RPM_RATE abaixo
+#define SCALE_STEPS 1710 // ao mudar este valor, atualizar POS_RPM_RATE abaixo
 #define CALIB_STEPS (SCALE_STEPS + 400) // valor a mais de varredura de calibração
 
 #define SET_MAX_RPM 6000 // ao mudar este valor, atualizar POS_RPM_RATE abaixo
 #define STEP_DELAY 1200
 
 //#define POS_RPM_RATE ((SCALE_STEPS/SET_MAX_RPM))
-#define POS_RPM_RATE (0.25) // compilador não está colaborando, fazendo a conta na mão
+#define POS_RPM_RATE (0.285) // compilador não está colaborando, fazendo a conta na mão
 
 #define PHASE_RESOLUTION 256
 
@@ -22,9 +22,8 @@ int PWM2_PIN = 5;  // azul
 int PHASE1_PIN = 6; //amarelo
 int PHASE2_PIN = 7; // roxo
 
-volatile uint32_t g_rot = 0; // rotation count
-unsigned long g_measureTime = 0;
 unsigned int g_current_pos = 0;
+unsigned int g_current_rpm = 0;
 
 const uint8_t phase[PHASE_RESOLUTION][4] = {
                            {0,0,1,0},
@@ -292,8 +291,8 @@ inline unsigned int convert_rpm_to_pos(unsigned int rpm) {
 void set_phase(unsigned int phase_idx) {
    phase_idx = phase_idx % PHASE_RESOLUTION;
 
-   Serial.print("set_phase:");
-   Serial.println(phase_idx);
+   //Serial.print("set_phase:");
+   //Serial.println(phase_idx);
 
    // regra de 3, 100 -> 255, val -> x
    uint8_t pwm1_val = phase[phase_idx][1] * 255 / 100;
@@ -353,39 +352,53 @@ void setup() {
    calibrate();
 }
 
-unsigned long int last_interrupt_time = 0;
-unsigned long int last_interrupt_time_diff = 0;
+void set_current_rpm(unsigned int new_rpm) {
+  unsigned int diff = new_rpm > g_current_rpm ? new_rpm - g_current_rpm :
+                                                g_current_rpm - new_rpm;
+
+  float alpha;
+
+  // filter
+  if (diff < 50)
+    alpha = 0.05;
+  if (diff < 100)
+    alpha = 0.15;
+  else if (diff < 200)
+    alpha = 0.20;
+  else if (diff < 300)
+    alpha = 0.35;
+  else if (diff < 500)
+    alpha = 0.60;
+  else
+    alpha = 0.80;
+
+  g_current_rpm = new_rpm*alpha + (1-alpha)*g_current_rpm;
+}
 
 void addRotation() {
-  g_rot++;
+  static unsigned int tick = 0;
+  static unsigned long last_tick_time = 0;
 
-  unsigned int now = millis();
-  last_interrupt_time_diff = now - last_interrupt_time;
-  last_interrupt_time = now;
+  tick++;
 
+  unsigned int current_time = millis();
+  unsigned int lapsed_time = current_time - last_tick_time;
+
+  if (lapsed_time < 100)
+    return;
+
+  set_current_rpm(((tick * 60000)/2) / (lapsed_time));
+
+  tick = 0;
+  last_tick_time = current_time;
 }
 
 
 void loop() {
-  static uint32_t current_rpm = 0;
-  go_to_rpm_dir(current_rpm);
+  go_to_rpm_dir(g_current_rpm);
 
-  unsigned int rot_ = g_rot;
-  unsigned int current_time = millis();
-  unsigned int lapsed_time = current_time - g_measureTime;
-  if (lapsed_time < 100) return;
-  g_rot = 0;
-  g_measureTime = current_time;
-
-  current_rpm = ((rot_ * 60000)/2) / (lapsed_time);
-
-  interrupts();
   Serial.print("current_rpm:");
-  Serial.print(current_rpm);
-  Serial.print(':');
-  Serial.print(rot_);
-  Serial.print(':');
-  Serial.println(lapsed_time);
+  Serial.println(g_current_rpm);
 }
 
 /*
