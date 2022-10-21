@@ -362,7 +362,7 @@ void set_current_rpm(unsigned int new_rpm) {
   if (diff < 50)
     alpha = 0.05;
   if (diff < 100)
-    alpha = 0.15;
+    alpha = 0.10;
   else if (diff < 200)
     alpha = 0.20;
   else if (diff < 300)
@@ -372,7 +372,8 @@ void set_current_rpm(unsigned int new_rpm) {
   else
     alpha = 0.80;
 
-  g_current_rpm = new_rpm*alpha + (1-alpha)*g_current_rpm;
+  g_current_rpm = new_rpm > g_current_rpm ? g_current_rpm + diff*alpha :
+                                            g_current_rpm - diff*alpha;
 }
 
 void addRotation() {
