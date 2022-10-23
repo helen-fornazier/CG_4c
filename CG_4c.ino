@@ -1,14 +1,16 @@
 
 
+
 #define SCALE_STEPS 1710 // ao mudar este valor, atualizar POS_RPM_RATE abaixo
 #define CALIB_STEPS (SCALE_STEPS + 400) // valor a mais de varredura de calibração
 
-#define SET_MAX_RPM 6000 // ao mudar este valor, atualizar POS_RPM_RATE abaixo
-#define STEP_DELAY 1200
+#define SET_MAX_RPM 8000 // ao mudar este valor, atualizar POS_RPM_RATE abaixo
+#define STEP_DELAY 50  // em teste, valor padrão 1200
 
 //#define POS_RPM_RATE ((SCALE_STEPS/SET_MAX_RPM))
-#define POS_RPM_RATE (0.285) // compilador não está colaborando, fazendo a conta na mão
-
+#define POS_RPM_RATE (0.213) // compilador não está colaborando, fazendo a conta na mão
+                             // fator de calibração fundo de escala.
+                             //  é o resultado da divisão 1710/8000
 #define PHASE_RESOLUTION 256
 
 inline unsigned int POS(int pos) {
@@ -327,12 +329,12 @@ bool go_to_rpm_dir(unsigned int rpm) {
 void calibrate() {
    unsigned int i;
    for (i = 0; i < CALIB_STEPS; i++) {
-      delayMicroseconds(400);
+      delayMicroseconds(600);
       set_phase(i);
    }
 
    while(i--) {
-      delayMicroseconds(400);
+      delayMicroseconds(600);
       set_phase(i);
    }
 }
@@ -347,7 +349,7 @@ void setup() {
    attachInterrupt(0, addRotation, FALLING);  //could also work with RISING
 
    Serial.begin(115200);
-   Serial.println("CG_4c 1.0");
+   Serial.println("CG_4c 1.0 20/10/2022");
 
    calibrate();
 }
@@ -370,7 +372,7 @@ void set_current_rpm(unsigned int new_rpm) {
   else if (diff < 500)
     alpha = 0.60;
   else
-    alpha = 0.80;
+    alpha = 0.95;
 
   g_current_rpm = new_rpm > g_current_rpm ? g_current_rpm + diff*alpha :
                                             g_current_rpm - diff*alpha;
@@ -385,7 +387,7 @@ void addRotation() {
   unsigned int current_time = millis();
   unsigned int lapsed_time = current_time - last_tick_time;
 
-  if (lapsed_time < 100)
+  if (lapsed_time < 500)  // 100 padrao taxa de atualização
     return;
 
   set_current_rpm(((tick * 60000)/2) / (lapsed_time));
