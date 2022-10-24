@@ -328,7 +328,6 @@ bool go_to_rpm_dir(unsigned int rpm) {
    else
       small_pos = POS(g_current_pos - 1);
 
-   delayMicroseconds(STEP_DELAY);
    set_phase(small_pos);
    g_current_pos = small_pos;
 
@@ -411,6 +410,7 @@ void loop() {
 
   Serial.print("current_rpm:");
   Serial.println(g_current_rpm);
+  delayMicroseconds(STEP_DELAY);
 }
 
 /*
