@@ -1,5 +1,12 @@
-//#define SCALE_8000
-#define SCALE_6000
+
+// https://github.com/helen-fornazier/CG_4c/blob/master/CG_4c.ino
+
+// Pontei voltar para o zero quando o pino de rpm não tiver rotação.
+// tempo de deslocamento do ponteiro da varredurar para o zero real.
+// ultima atualização 24/10/2022
+
+#define SCALE_8000
+//#define SCALE_6000
 
 #if defined(SCALE_8000)
     #define SET_MAX_RPM 8000 // ao mudar este valor, atualizar POS_RPM_RATE abaixo
@@ -17,10 +24,21 @@
 
 #define SCALE_STEPS 1710 // ao mudar este valor, atualizar POS_RPM_RATE
 #define CALIB_STEPS (SCALE_STEPS + 400) // valor a mais de varredura de calibração
-#define STEP_DELAY 50  // em teste, valor padrão 1200
+#define STEP_DELAY 100  // em teste, valor padrão 1200
 #define PHASE_RESOLUTION 256
-#define CALIB_STEP_DELAY 600
-#define RPM_UPDATE_DELAY 500
+#define CALIB_STEP_DELAY 400
+#define RPM_UPDATE_DELAY 60  // 500
+
+#define CORRECT_CLOCK 5
+
+#define micros() (micros() >> CORRECT_CLOCK)
+#define millis() (millis() >> CORRECT_CLOCK)
+
+
+void fixDelay(uint32_t ms) {
+  delay(ms << CORRECT_CLOCK);
+}
+
 
 inline unsigned int POS(int pos) {
    if (pos < 0) return 0;
@@ -359,6 +377,14 @@ void setup() {
    Serial.begin(115200);
    Serial.println("CG_4c 1.0 20/10/2022");
 
+    // Pins D5 and D6 - 16kHz
+   TCCR0B = 0b00000001; // x8
+   TCCR0A = 0b00000001; // fast pwm
+
+   // Pins D3 and D11 - 16kHz
+   TCCR2B = 0b00000001; // x1
+   TCCR2A = 0b00000001; // phase correct
+
    calibrate();
 }
 
@@ -373,14 +399,14 @@ void set_current_rpm(unsigned int new_rpm) {
     alpha = 0.05;
   if (diff < 100)
     alpha = 0.10;
-  else if (diff < 200)
-    alpha = 0.20;
-  else if (diff < 300)
-    alpha = 0.35;
-  else if (diff < 500)
-    alpha = 0.60;
+  else if (diff < 100) //100
+    alpha = 0.20;     // 0.20
+  else if (diff < 300)  //300
+    alpha = 0.35;      // 0.35
+  else if (diff < 500)  //500
+    alpha = 0.60;       // 0.60
   else
-    alpha = 0.95;
+    alpha = 0.80;
 
   g_current_rpm = new_rpm > g_current_rpm ? g_current_rpm + diff*alpha :
                                             g_current_rpm - diff*alpha;
@@ -408,8 +434,8 @@ void addRotation() {
 void loop() {
   go_to_rpm_dir(g_current_rpm);
 
-  Serial.print("current_rpm:");
-  Serial.println(g_current_rpm);
+  //Serial.print("current_rpm:");
+  //Serial.println(g_current_rpm);
   delayMicroseconds(STEP_DELAY);
 }
 
