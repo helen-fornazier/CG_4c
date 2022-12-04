@@ -24,10 +24,9 @@
 
 #define SCALE_STEPS 1710 // ao mudar este valor, atualizar POS_RPM_RATE
 #define CALIB_STEPS (SCALE_STEPS + 400) // valor a mais de varredura de calibração
-#define STEP_DELAY 100  // em teste, valor padrão 1200
+#define STEP_DELAY 300  // em teste, valor padrão 1200
 #define PHASE_RESOLUTION 256
 #define CALIB_STEP_DELAY 400
-#define RPM_UPDATE_DELAY 60  // 500
 
 #define CORRECT_CLOCK 5
 
@@ -52,7 +51,7 @@ int PHASE1_PIN = 6; //amarelo
 int PHASE2_PIN = 7; // roxo
 
 unsigned int g_current_pos = 0;
-unsigned int g_current_rpm = 0;
+unsigned int g_target_pos = 0;
 
 const uint8_t phase[PHASE_RESOLUTION][4] = {
                            {0,0,1,0},
@@ -333,9 +332,8 @@ void set_phase(unsigned int phase_idx) {
    digitalWrite(PHASE2_PIN, phase[phase_idx][2]);
 }
 
-// make one step torwards rpm position
-bool go_to_rpm_dir(unsigned int rpm) {
-   unsigned int pos = convert_rpm_to_pos(rpm);
+// make one step torwards position
+bool go_to_pos_dir(unsigned int pos) {
    unsigned int small_pos;
 
    if (pos == g_current_pos)
@@ -388,28 +386,28 @@ void setup() {
    calibrate();
 }
 
-void set_current_rpm(unsigned int new_rpm) {
-  unsigned int diff = new_rpm > g_current_rpm ? new_rpm - g_current_rpm :
-                                                g_current_rpm - new_rpm;
+void set_target_pos(unsigned int new_pos) {
+  unsigned int diff = new_pos > g_current_pos ? new_pos - g_current_pos :
+                                                g_current_pos - new_pos;
 
   float alpha;
 
-  // filter
-  if (diff < 50)
+  // filter on pos (a full scale has SCALE_STEPS positions)
+  if (diff < 30) //150 rpm
+    alpha = 0;
+  if (diff < 100) // 500 rpm
     alpha = 0.05;
-  if (diff < 100)
+  else if (diff < 200) //1000 rpm
     alpha = 0.10;
-  else if (diff < 100) //100
-    alpha = 0.20;     // 0.20
-  else if (diff < 300)  //300
-    alpha = 0.35;      // 0.35
-  else if (diff < 500)  //500
-    alpha = 0.60;       // 0.60
+  else if (diff < 450) // 2000 rpm
+    alpha = 0.15;
+  else if (diff < 850) // 4000 rpm
+    alpha = 0.20;
   else
-    alpha = 0.80;
+    alpha = 0.40;
 
-  g_current_rpm = new_rpm > g_current_rpm ? g_current_rpm + diff*alpha :
-                                            g_current_rpm - diff*alpha;
+  g_target_pos = new_pos > g_current_pos ? g_current_pos + diff*alpha :
+                                           g_current_pos - diff*alpha;
 }
 
 void addRotation() {
@@ -421,21 +419,20 @@ void addRotation() {
   unsigned int current_time = millis();
   unsigned int lapsed_time = current_time - last_tick_time;
 
-  if (lapsed_time < RPM_UPDATE_DELAY)
-    return;
+  unsigned int new_rpm = ((tick * 60000)/2) / (lapsed_time);
+  unsigned int new_pos = convert_rpm_to_pos(new_rpm);
 
-  set_current_rpm(((tick * 60000)/2) / (lapsed_time));
+  set_target_pos(new_pos);
 
   tick = 0;
   last_tick_time = current_time;
 }
 
 
-void loop() {
-  go_to_rpm_dir(g_current_rpm);
 
-  //Serial.print("current_rpm:");
-  //Serial.println(g_current_rpm);
+
+void loop() {
+  go_to_pos_dir(g_target_pos);
   delayMicroseconds(STEP_DELAY);
 }
 
