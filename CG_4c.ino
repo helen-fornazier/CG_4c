@@ -26,8 +26,8 @@
 #define CALIB_STEPS (SCALE_STEPS + 400) // valor a mais de varredura de calibração
 #define PHASE_RESOLUTION 256
 #define CALIB_STEP_DELAY 400
-#define RPM_UPDATE_DELAY 80  // 500
 
+#define UPDATE_TARGET_POS_DELAY_US 100
 
 #define CORRECT_CLOCK 5
 
@@ -53,6 +53,8 @@ int PHASE2_PIN = 7; // roxo
 
 unsigned int g_current_pos = 0;
 unsigned int g_target_pos = 0;
+
+unsigned int g_read_rpm = 0;
 
 const uint8_t phase[PHASE_RESOLUTION][4] = {
                            {0,0,1,0},
@@ -334,7 +336,7 @@ void set_phase(unsigned int phase_idx) {
 }
 
 // make one step torwards position
-bool go_to_pos_dir(unsigned int pos) {
+void go_to_pos_dir(unsigned int pos) {
    unsigned int small_pos;
 
    if (pos == g_current_pos)
@@ -347,8 +349,6 @@ bool go_to_pos_dir(unsigned int pos) {
 
    set_phase(small_pos);
    g_current_pos = small_pos;
-
-   return pos == g_current_pos;
 }
 
 void calibrate() {
@@ -371,7 +371,7 @@ void setup() {
    pinMode(PHASE1_PIN, OUTPUT); // configura pino como saída
    pinMode(PHASE2_PIN, OUTPUT); // configura pino como saída
 
-   attachInterrupt(0, addRotation, FALLING);  //could also work with RISING
+   attachInterrupt(0, isr_rpm, FALLING);  //could also work with RISING
 
    Serial.begin(115200);
    Serial.println("CG_4c 1.0 20/10/2022");
@@ -391,83 +391,80 @@ void set_target_pos(unsigned int new_pos) {
   unsigned int diff = new_pos > g_current_pos ? new_pos - g_current_pos :
                                                 g_current_pos - new_pos;
 
-  float alpha;
+  float alpha = 1;
 
   // filter on pos (a full scale has SCALE_STEPS positions)
-  if (diff < 30) //150 rpm
-    alpha = 0;
-  else if (diff < 60) // 300 rpm
+  if (diff < 30)
+    return;
+  else if (diff < 80)
+    alpha = 0.05;
+  else if (diff < 100)
+    alpha = 0.10;
+  else if (diff < 200)
     alpha = 0.30;
   else
-    alpha = 1;
+    alpha = 0.8;
 
-  static unsigned long last_print_time = 0;
+  unsigned int new_diff = diff*alpha;
 
-  if (millis() - last_print_time > 1000) {
-	  Serial.print("alpha:");
-	  Serial.print(alpha);
-	  Serial.print(" diff:");
-	  Serial.println(diff);
-	  last_print_time = millis();
-  }
-
-  g_target_pos = new_pos > g_current_pos ? g_current_pos + diff*alpha :
-                                           g_current_pos - diff*alpha;
-
+  g_target_pos = new_pos > g_current_pos ? g_current_pos + new_diff :
+                                           g_current_pos - new_diff;
   if (g_target_pos > SCALE_STEPS)
-	g_target_pos = SCALE_STEPS;
+    g_target_pos = SCALE_STEPS;
 }
 
-void addRotation() {
+void isr_rpm() {
   static unsigned int tick = 0;
   static unsigned long last_tick_time = 0;
 
   tick++;
 
+  // wait 3 ticks, which is equivalent to 180 milli on a 500rpm
+  if (tick < 3)
+    return;
+
   unsigned int current_time = millis();
   unsigned int lapsed_time = current_time - last_tick_time;
 
-  if (lapsed_time < RPM_UPDATE_DELAY)
-    return;
-
-  unsigned int new_rpm = ((tick * 60000)/2) / (lapsed_time);
-  unsigned int new_pos = convert_rpm_to_pos(new_rpm);
-
-  set_target_pos(new_pos);
+  g_read_rpm = ((tick * 60000)/2) / (lapsed_time);
 
   tick = 0;
   last_tick_time = current_time;
 }
 
-void loop() {
-  static unsigned long last_move_time = 0;
-  unsigned int diff = g_target_pos > g_current_pos ?
-  			g_target_pos - g_current_pos :
-  			g_current_pos - g_target_pos;
+void update_target_pos() {
+  static unsigned long last_target_pos_updated_time = 0;
+  if (micros() - last_target_pos_updated_time < UPDATE_TARGET_POS_DELAY_US)
+    return;
 
-  unsigned int step_delay;
+  unsigned int new_pos = convert_rpm_to_pos(g_read_rpm);
+  set_target_pos(new_pos);
+  last_target_pos_updated_time = micros();
+}
 
-  if (diff < 30) //150 rpm
-    step_delay = 3000;
-  else if (diff < 60) //300 rpm
-    step_delay = 1200;
+unsigned long get_pointer_delay(unsigned int diff) {
+  if (diff > 213)
+    return 200;
   else
-    step_delay = 100;
+    // Varie gradualmente de 200 até 4000 para diff entre 0 e 213
+    return 4000 - diff*17.84;
+}
 
-  static unsigned long last_print_time = 0;
+void move_pointer() {
+  static unsigned long last_move_pointer_time = 0;
+  unsigned int diff = g_target_pos > g_current_pos ? g_target_pos - g_current_pos :
+                                                     g_current_pos - g_target_pos;
 
-  if (millis() - last_print_time > 1000) {
-	  Serial.print("step_delay:");
-	  Serial.print(step_delay);
-	  Serial.print(" diff:");
-	  Serial.println(diff);
-	  last_print_time = millis();
-  }
-
-  delayMicroseconds(step_delay);
-
+  if (micros() - last_move_pointer_time < get_pointer_delay(diff))
+    return;
 
   go_to_pos_dir(g_target_pos);
+  last_move_pointer_time = micros();
+}
+
+void loop() {
+  update_target_pos();
+  move_pointer();
 }
 
 /*
