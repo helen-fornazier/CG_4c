@@ -24,9 +24,10 @@
 
 #define SCALE_STEPS 1710 // ao mudar este valor, atualizar POS_RPM_RATE
 #define CALIB_STEPS (SCALE_STEPS + 400) // valor a mais de varredura de calibração
-#define STEP_DELAY 300  // em teste, valor padrão 1200
 #define PHASE_RESOLUTION 256
 #define CALIB_STEP_DELAY 400
+#define RPM_UPDATE_DELAY 80  // 500
+
 
 #define CORRECT_CLOCK 5
 
@@ -395,19 +396,26 @@ void set_target_pos(unsigned int new_pos) {
   // filter on pos (a full scale has SCALE_STEPS positions)
   if (diff < 30) //150 rpm
     alpha = 0;
-  if (diff < 100) // 500 rpm
-    alpha = 0.05;
-  else if (diff < 200) //1000 rpm
-    alpha = 0.10;
-  else if (diff < 450) // 2000 rpm
-    alpha = 0.15;
-  else if (diff < 850) // 4000 rpm
-    alpha = 0.20;
+  else if (diff < 60) // 300 rpm
+    alpha = 0.30;
   else
-    alpha = 0.40;
+    alpha = 1;
+
+  static unsigned long last_print_time = 0;
+
+  if (millis() - last_print_time > 1000) {
+	  Serial.print("alpha:");
+	  Serial.print(alpha);
+	  Serial.print(" diff:");
+	  Serial.println(diff);
+	  last_print_time = millis();
+  }
 
   g_target_pos = new_pos > g_current_pos ? g_current_pos + diff*alpha :
                                            g_current_pos - diff*alpha;
+
+  if (g_target_pos > SCALE_STEPS)
+	g_target_pos = SCALE_STEPS;
 }
 
 void addRotation() {
@@ -419,6 +427,9 @@ void addRotation() {
   unsigned int current_time = millis();
   unsigned int lapsed_time = current_time - last_tick_time;
 
+  if (lapsed_time < RPM_UPDATE_DELAY)
+    return;
+
   unsigned int new_rpm = ((tick * 60000)/2) / (lapsed_time);
   unsigned int new_pos = convert_rpm_to_pos(new_rpm);
 
@@ -428,12 +439,35 @@ void addRotation() {
   last_tick_time = current_time;
 }
 
-
-
-
 void loop() {
+  static unsigned long last_move_time = 0;
+  unsigned int diff = g_target_pos > g_current_pos ?
+  			g_target_pos - g_current_pos :
+  			g_current_pos - g_target_pos;
+
+  unsigned int step_delay;
+
+  if (diff < 30) //150 rpm
+    step_delay = 3000;
+  else if (diff < 60) //300 rpm
+    step_delay = 1200;
+  else
+    step_delay = 100;
+
+  static unsigned long last_print_time = 0;
+
+  if (millis() - last_print_time > 1000) {
+	  Serial.print("step_delay:");
+	  Serial.print(step_delay);
+	  Serial.print(" diff:");
+	  Serial.println(diff);
+	  last_print_time = millis();
+  }
+
+  delayMicroseconds(step_delay);
+
+
   go_to_pos_dir(g_target_pos);
-  delayMicroseconds(STEP_DELAY);
 }
 
 /*
