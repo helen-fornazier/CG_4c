@@ -427,6 +427,8 @@ void isr_rpm() {
   unsigned long lapsed_time = current_time - g_last_rpm_time;
 
   g_read_rpm = ((tick * 60000)/2) / (lapsed_time);
+  if (g_read_rpm > SET_MAX_RPM)
+    g_read_rpm = SET_MAX_RPM;
 
   tick = 0;
   last_tick_time = current_time;
