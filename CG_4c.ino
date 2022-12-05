@@ -27,8 +27,6 @@
 #define PHASE_RESOLUTION 256
 #define CALIB_STEP_DELAY 400
 
-#define UPDATE_TARGET_POS_DELAY_US 100
-
 #define CORRECT_CLOCK 5
 
 #define micros() (micros() >> CORRECT_CLOCK)
@@ -433,16 +431,11 @@ void isr_rpm() {
 }
 
 void update_target_pos() {
-  static unsigned long last_target_pos_updated_time = 0;
-  if (micros() - last_target_pos_updated_time < UPDATE_TARGET_POS_DELAY_US)
-    return;
-
   if (millis() - g_last_rpm_time > 250) // if below 25hz and we don't have a tick
     g_read_rpm = 0;
 
   unsigned int new_pos = convert_rpm_to_pos(g_read_rpm);
   set_target_pos(new_pos);
-  last_target_pos_updated_time = micros();
 }
 
 unsigned long get_pointer_delay(unsigned int diff) {
@@ -458,7 +451,10 @@ void move_pointer() {
   unsigned int diff = g_target_pos > g_current_pos ? g_target_pos - g_current_pos :
                                                      g_current_pos - g_target_pos;
 
-  if (micros() - last_move_pointer_time < get_pointer_delay(diff))
+  unsigned long mc = micros();
+  // check overflow
+  if (mc > last_move_pointer_time &&
+      mc - last_move_pointer_time < get_pointer_delay(diff))
     return;
 
   go_to_pos_dir(g_target_pos);
