@@ -340,7 +340,7 @@ void go_to_pos_dir(unsigned int pos) {
    unsigned int small_pos;
 
    if (pos == g_current_pos)
-       return true;
+       return;
 
    if (pos > g_current_pos)
       small_pos = POS(g_current_pos + 1);
