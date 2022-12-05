@@ -55,6 +55,7 @@ unsigned int g_current_pos = 0;
 unsigned int g_target_pos = 0;
 
 unsigned int g_read_rpm = 0;
+unsigned long g_last_rpm_time = 0;
 
 const uint8_t phase[PHASE_RESOLUTION][4] = {
                            {0,0,1,0},
@@ -415,7 +416,6 @@ void set_target_pos(unsigned int new_pos) {
 
 void isr_rpm() {
   static unsigned int tick = 0;
-  static unsigned long last_tick_time = 0;
 
   tick++;
 
@@ -431,13 +431,16 @@ void isr_rpm() {
     g_read_rpm = SET_MAX_RPM;
 
   tick = 0;
-  last_tick_time = current_time;
+  g_last_rpm_time = current_time;
 }
 
 void update_target_pos() {
   static unsigned long last_target_pos_updated_time = 0;
   if (micros() - last_target_pos_updated_time < UPDATE_TARGET_POS_DELAY_US)
     return;
+
+  if (millis() - g_last_rpm_time > 250) // if below 25hz and we don't have a tick
+    g_read_rpm = 0;
 
   unsigned int new_pos = convert_rpm_to_pos(g_read_rpm);
   set_target_pos(new_pos);
