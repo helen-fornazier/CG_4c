@@ -394,9 +394,9 @@ void set_target_pos(unsigned int new_pos) {
 
   // filter on pos (a full scale has SCALE_STEPS positions)
   if (diff < 80)
-    alpha = 0.05;
+    alpha = 0.15;
   else if (diff < 100)
-    alpha = 0.10;
+    alpha = 0.20;
   else if (diff < 200)
     alpha = 0.30;
   else
@@ -441,7 +441,7 @@ void update_target_pos() {
 unsigned long get_pointer_delay(unsigned int diff) {
   if (diff > 213)
     return 200;
-  else if (diff < 10)
+  else if (diff < 20)
     return 8000;
   else
     // Varie gradualmente de 200 até 4000 para diff entre 0 e 213
