@@ -441,6 +441,8 @@ void update_target_pos() {
 unsigned long get_pointer_delay(unsigned int diff) {
   if (diff > 213)
     return 200;
+  else if (diff < 10)
+    return 8000;
   else
     // Varie gradualmente de 200 até 4000 para diff entre 0 e 213
     return 4000 - diff*17.84;
