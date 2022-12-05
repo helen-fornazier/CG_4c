@@ -395,9 +395,7 @@ void set_target_pos(unsigned int new_pos) {
   float alpha = 1;
 
   // filter on pos (a full scale has SCALE_STEPS positions)
-  if (diff < 30)
-    return;
-  else if (diff < 80)
+  if (diff < 80)
     alpha = 0.05;
   else if (diff < 100)
     alpha = 0.10;
