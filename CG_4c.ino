@@ -423,8 +423,8 @@ void isr_rpm() {
   if (tick < 3)
     return;
 
-  unsigned int current_time = millis();
-  unsigned int lapsed_time = current_time - last_tick_time;
+  unsigned long current_time = millis();
+  unsigned long lapsed_time = current_time - g_last_rpm_time;
 
   g_read_rpm = ((tick * 60000)/2) / (lapsed_time);
 
