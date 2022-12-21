@@ -38,7 +38,7 @@ void fixDelay(uint32_t ms) {
 }
 
 
-inline unsigned int POS(int pos) {
+static inline unsigned int POS(int pos) {
    if (pos < 0) return 0;
    if (pos > SCALE_STEPS) return SCALE_STEPS;
    return pos;
@@ -49,8 +49,13 @@ int PWM2_PIN = 5;  // azul
 int PHASE1_PIN = 6; //amarelo
 int PHASE2_PIN = 7; // roxo
 
+#define ARRAY_SIZE(a) (sizeof(a) / sizeof(*(a)))
+
+unsigned int g_speed_delay[] =
+	{1400, 1200, 1000, 800, 600, 400, 200, 100, 50, 10};
+
+unsigned int g_speed_idx = 0;
 unsigned int g_current_pos = 0;
-unsigned int g_target_pos = 0;
 
 unsigned int g_read_rpm = 0;
 unsigned long g_last_rpm_time = 0;
@@ -313,12 +318,7 @@ const uint8_t phase[PHASE_RESOLUTION][4] = {
                            {1,95,1,1},
                            {1,100,1,1}};
 
-// return position equivalent from 0 to SCALE_STEPS
-inline unsigned int convert_rpm_to_pos(unsigned int rpm) {
-    return rpm*POS_RPM_RATE;
-}
-
-void set_phase(unsigned int phase_idx) {
+static void set_phase(unsigned int phase_idx) {
    phase_idx = phase_idx % PHASE_RESOLUTION;
 
    //Serial.print("set_phase:");
@@ -335,7 +335,7 @@ void set_phase(unsigned int phase_idx) {
 }
 
 // make one step torwards position
-void go_to_pos_dir(unsigned int pos) {
+static void go_to_pos_dir(unsigned int pos) {
    unsigned int small_pos;
 
    if (pos == g_current_pos)
@@ -350,7 +350,7 @@ void go_to_pos_dir(unsigned int pos) {
    g_current_pos = small_pos;
 }
 
-void calibrate() {
+static void calibrate() {
    unsigned int i;
    for (i = 0; i < CALIB_STEPS; i++) {
       delayMicroseconds(CALIB_STEP_DELAY);
@@ -386,30 +386,6 @@ void setup() {
    calibrate();
 }
 
-void set_target_pos(unsigned int new_pos) {
-  unsigned int diff = new_pos > g_current_pos ? new_pos - g_current_pos :
-                                                g_current_pos - new_pos;
-
-  float alpha = 1;
-
-  // filter on pos (a full scale has SCALE_STEPS positions)
-  if (diff < 80)
-    alpha = 0.15;
-  else if (diff < 100)
-    alpha = 0.20;
-  else if (diff < 200)
-    alpha = 0.30;
-  else
-    alpha = 0.8;
-
-  unsigned int new_diff = diff*alpha;
-
-  g_target_pos = new_pos > g_current_pos ? g_current_pos + new_diff :
-                                           g_current_pos - new_diff;
-  if (g_target_pos > SCALE_STEPS)
-    g_target_pos = SCALE_STEPS;
-}
-
 void isr_rpm() {
   static unsigned int tick = 0;
 
@@ -430,42 +406,87 @@ void isr_rpm() {
   g_last_rpm_time = current_time;
 }
 
-void update_target_pos() {
+static unsigned int filter_target_pos(unsigned int new_pos) {
+  unsigned int diff = new_pos > g_current_pos ? new_pos - g_current_pos :
+                                                g_current_pos - new_pos;
+  float alpha = 1;
+  // filter on pos (a full scale has SCALE_STEPS positions)
+  if (diff < 80)
+    alpha = 0.15;
+  else if (diff < 100)
+    alpha = 0.20;
+  else if (diff < 200)
+    alpha = 0.30;
+
+  unsigned int new_diff = diff*alpha;
+  bool up = new_pos > g_current_pos;
+  return up ? POS(g_current_pos + new_diff) :
+              POS(g_current_pos - new_diff);
+}
+
+/* Target pos must go until we reach the lowest speed (g_speed_idx = 0) */
+static unsigned int normalize_target_pos(unsigned int new_pos) {
+    unsigned int diff = new_pos > g_current_pos ? new_pos - g_current_pos :
+                                                g_current_pos - new_pos;
+    if (!diff)
+        return new_pos;
+
+    bool up = new_pos > g_current_pos;
+    if (diff < g_speed_idx)
+        return up ? POS(g_current_pos + g_speed_idx) :
+                    POS(g_current_pos - g_speed_idx);
+    return new_pos;
+}
+
+// return position equivalent from 0 to SCALE_STEPS
+static inline unsigned int convert_rpm_to_pos(unsigned int rpm) {
+    return POS(rpm*POS_RPM_RATE);
+}
+
+static unsigned int get_target_pos() {
   if (millis() - g_last_rpm_time > 250) // if below 25hz and we don't have a tick
     g_read_rpm = 0;
 
   unsigned int new_pos = convert_rpm_to_pos(g_read_rpm);
-  set_target_pos(new_pos);
+  new_pos = filter_target_pos(new_pos);
+  return normalize_target_pos(new_pos);
 }
 
-unsigned long get_pointer_delay(unsigned int diff) {
-  if (diff > 213)
-    return 200;
-  else if (diff < 20)
-    return 8000;
-  else
-    // Varie gradualmente de 200 até 4000 para diff entre 0 e 213
-    return 4000 - diff*17.84;
-}
+static void update_speed_idx(unsigned int new_pos){
+    unsigned int diff = new_pos > g_current_pos ? new_pos - g_current_pos :
+                                                g_current_pos - new_pos;
+    if (!diff) {
+        if (g_speed_idx) {
+            Serial.print("warning, pos_diff is 0 and speed_idx is != 0");
+            Serial.println(g_speed_idx);
+            g_speed_idx = 0;
+        }
+        return;
+    }
+    enum speed_state {
+        SPEED_KEEP,
+        SPEED_BREAK,
+        SPEED_ACCELERATE,
+    } state;
 
-void move_pointer() {
-  static unsigned long last_move_pointer_time = 0;
-  unsigned int diff = g_target_pos > g_current_pos ? g_target_pos - g_current_pos :
-                                                     g_current_pos - g_target_pos;
+    if (diff - 1 == g_speed_idx)
+        state = SPEED_KEEP;
+    else if (diff <= g_speed_idx)
+        state = SPEED_BREAK;
+    else
+        state = SPEED_ACCELERATE;
 
-  unsigned long mc = micros();
-  // check overflow
-  if (mc > last_move_pointer_time &&
-      mc - last_move_pointer_time < get_pointer_delay(diff))
-    return;
-
-  go_to_pos_dir(g_target_pos);
-  last_move_pointer_time = micros();
+    if (g_speed_idx && state == SPEED_BREAK)
+        g_speed_idx--;
+    else if (g_speed_idx < ARRAY_SIZE(g_speed_delay) - 1 && state == SPEED_ACCELERATE)
+        g_speed_idx++;
 }
 
 void loop() {
-  update_target_pos();
-  move_pointer();
+  unsigned int target_pos = get_target_pos();
+  update_speed_idx(target_pos);
+  go_to_pos_dir(target_pos);
+  delayMicroseconds(g_speed_delay[g_speed_idx]);
 }
 
 /*
