@@ -51,14 +51,185 @@ int PHASE2_PIN = 7; // roxo
 
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof(*(a)))
 
-unsigned int g_speed_delay[] =
-	{1400, 1200, 1000, 800, 600, 400, 200, 100, 50, 10};
+/*
+volatile unsigned int g_speed_delay[] = {
+1701,
+1134,
+8505,
+6804,
+5670,
+4860,
+4252,
+3780,
+3402,
+3092,
+2835,
+2616,
+2430,
+2268,
+2126,
+2001,
+1890,
+1790,
+1701,
+1620,
+1546,
+1479,
+1417,
+1360,
+1308,
+1260,
+1215,
+1173,
+1134,
+1097,
+1063,
+1030,
+1000,
+972,
+945,
+919,
+895,
+872,
+850,
+829,
+810,
+791,
+773,
+756,
+739,
+723,
+708,
+694,
+680,
+667,
+654,
+641,
+630,
+618,
+607,
+596,
+586,
+576,
+567,
+557,
+548,
+540,
+531,
+523,
+515,
+507,
+500,
+493,
+486,
+479,
+472,
+466,
+459,
+453,
+447,
+441,
+436,
+430,
+425,
+420,
+414,
+409,
+405,
+400,
+395,
+391,
+386,
+382,
+378,
+373,
+369,
+365,
+361,
+358,
+354,
+350,
+347,
+343,
+340,
+336,
+333,
+330,
+327,
+324,
+320,
+317,
+315,
+312,
+309,
+306,
+303,
+301,
+298,
+295,
+293,
+290,
+288,
+285,
+283,
+281,
+278,
+276,
+274,
+272,
+270,
+267,
+265,
+263,
+261,
+259,
+257,
+255,
+253,
+252,
+250,
+248,
+246,
+244,
+243,
+241,
+239,
+237,
+236,
+234,
+233,
+231,
+229,
+228,
+226,
+225,
+223,
+222,
+220,
+219,
+218,
+216,
+215,
+213,
+212,
+211,
+210,
+208,
+207,
+206,
+204,
+203,
+202,
+201,
+200,
+};
+*/
 
-unsigned int g_speed_idx = 0;
-unsigned int g_current_pos = 0;
+volatile unsigned int g_speed_idx = 0;
+volatile unsigned int g_current_pos = 0;
 
-unsigned int g_read_rpm = 0;
-unsigned long g_last_rpm_time = 0;
+volatile unsigned int g_read_rpm = 0;
+volatile unsigned long g_last_rpm_time = 0;
 
 const uint8_t phase[PHASE_RESOLUTION][4] = {
                            {0,0,1,0},
@@ -388,6 +559,8 @@ void setup() {
 
 void isr_rpm() {
   static unsigned int tick = 0;
+  unsigned long current_time = millis();
+  unsigned long lapsed_time = current_time - g_last_rpm_time;
 
   tick++;
 
@@ -395,8 +568,6 @@ void isr_rpm() {
   if (tick < 3)
     return;
 
-  unsigned long current_time = millis();
-  unsigned long lapsed_time = current_time - g_last_rpm_time;
 
   g_read_rpm = ((tick * 60000)/2) / (lapsed_time);
   if (g_read_rpm > SET_MAX_RPM)
@@ -410,7 +581,7 @@ static unsigned int filter_target_pos(unsigned int new_pos) {
   unsigned int diff = new_pos > g_current_pos ? new_pos - g_current_pos :
                                                 g_current_pos - new_pos;
   float alpha = 1;
-  // filter on pos (a full scale has SCALE_STEPS positions)
+  //filter on pos (a full scale has SCALE_STEPS positions)
   if (diff < 80)
     alpha = 0.15;
   else if (diff < 100)
@@ -428,13 +599,13 @@ static unsigned int filter_target_pos(unsigned int new_pos) {
 static unsigned int normalize_target_pos(unsigned int new_pos) {
     unsigned int diff = new_pos > g_current_pos ? new_pos - g_current_pos :
                                                 g_current_pos - new_pos;
-    if (!diff)
-        return new_pos;
+    if (diff < 20)
+    	return g_current_pos;
 
     bool up = new_pos > g_current_pos;
     if (diff < g_speed_idx)
-        return up ? POS(g_current_pos + g_speed_idx) :
-                    POS(g_current_pos - g_speed_idx);
+        new_pos = up ? POS(g_current_pos + g_speed_idx) :
+                       POS(g_current_pos - g_speed_idx);
     return new_pos;
 }
 
@@ -444,20 +615,21 @@ static inline unsigned int convert_rpm_to_pos(unsigned int rpm) {
 }
 
 static unsigned int get_target_pos() {
-  if (millis() - g_last_rpm_time > 250) // if below 25hz and we don't have a tick
+  if (millis() - g_last_rpm_time > 180) // if below 25hz and we don't have a tick
     g_read_rpm = 0;
 
   unsigned int new_pos = convert_rpm_to_pos(g_read_rpm);
-  new_pos = filter_target_pos(new_pos);
+  //new_pos = filter_target_pos(new_pos);
   return normalize_target_pos(new_pos);
 }
 
+#if 0
 static void update_speed_idx(unsigned int new_pos){
     unsigned int diff = new_pos > g_current_pos ? new_pos - g_current_pos :
                                                 g_current_pos - new_pos;
     if (!diff) {
         if (g_speed_idx) {
-            Serial.print("warning, pos_diff is 0 and speed_idx is != 0");
+            Serial.print("warning, diff is 0 and speed_idx is != 0 ");
             Serial.println(g_speed_idx);
             g_speed_idx = 0;
         }
@@ -480,13 +652,97 @@ static void update_speed_idx(unsigned int new_pos){
         g_speed_idx--;
     else if (g_speed_idx < ARRAY_SIZE(g_speed_delay) - 1 && state == SPEED_ACCELERATE)
         g_speed_idx++;
+
+    //Serial.print("rpm ");
+    //Serial.print(g_read_rpm);
+    //Serial.print(" diff ");
+    //Serial.print(diff);
+    //Serial.print(" speed idx ");
+    //Serial.println(g_speed_idx);
+}
+#endif
+
+void get_rpm_from_serial() {
+  const unsigned int MAX_MESSAGE_LENGTH = 12;
+ //Check to see if anything is available in the serial receive buffer
+ while (Serial.available() > 0)
+ {
+   //Create a place to hold the incoming message
+   static char message[MAX_MESSAGE_LENGTH];
+   static unsigned int message_pos = 0;
+
+   //Read the next available byte in the serial receive buffer
+   char inByte = Serial.read();
+
+   //Message coming in (check not terminating character) and guard for over message size
+   if ( inByte != '\n' && (message_pos < MAX_MESSAGE_LENGTH - 1) )
+   {
+     //Add the incoming byte to our message
+     message[message_pos] = inByte;
+     message_pos++;
+   }
+   //Full message received...
+   else
+   {
+     //Add null character to string
+     message[message_pos] = '\0';
+
+     unsigned int number = atoi(message);
+
+     g_read_rpm = number;
+
+     //Reset for the next message
+     message_pos = 0;
+     break;
+   }
+ }
 }
 
+/*
 void loop() {
-  unsigned int target_pos = get_target_pos();
+  //get_rpm_from_serial();
+
+  volatile unsigned int target_pos = get_target_pos();
   update_speed_idx(target_pos);
   go_to_pos_dir(target_pos);
+
+  //if (target_pos != g_current_pos) {
+  //  Serial.print("rpm ");
+  //  Serial.print(g_read_rpm);
+  //  Serial.print(" cur_pos ");
+  //  Serial.print(g_current_pos);
+  //  Serial.print(" target_pos ");
+  //  Serial.print(target_pos);
+  //  Serial.print(" g_speed_idx ");
+  //  Serial.print(g_speed_idx);
+  //  Serial.print(" delay ");
+  //  Serial.println(g_speed_delay[g_speed_idx]);
+  //}
+
   delayMicroseconds(g_speed_delay[g_speed_idx]);
+}*/
+
+void loop() {
+  //get_rpm_from_serial();
+  volatile unsigned int new_pos = get_target_pos();
+  unsigned int diff = new_pos > g_current_pos ? new_pos - g_current_pos :
+                                                g_current_pos - new_pos;
+  if (diff < 20)
+     return;
+
+  unsigned int delay_us = 120000/diff;
+
+  //Serial.print("rpm ");
+  //Serial.print(g_read_rpm);
+  //Serial.print(" target_pos ");
+  //Serial.print(new_pos);
+  //Serial.print(" delay ");
+  //Serial.println(delay_us);
+
+  go_to_pos_dir(new_pos);
+
+  delayMicroseconds(50);
+  //delayMicroseconds(delay_us);
 }
 
 /*
