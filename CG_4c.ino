@@ -37,7 +37,6 @@ void fixDelay(uint32_t ms) {
   delay(ms << CORRECT_CLOCK);
 }
 
-
 static inline unsigned int POS(int pos) {
    if (pos < 0) return 0;
    if (pos > SCALE_STEPS) return SCALE_STEPS;
@@ -51,181 +50,6 @@ int PHASE2_PIN = 7; // roxo
 
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof(*(a)))
 
-/*
-volatile unsigned int g_speed_delay[] = {
-1701,
-1134,
-8505,
-6804,
-5670,
-4860,
-4252,
-3780,
-3402,
-3092,
-2835,
-2616,
-2430,
-2268,
-2126,
-2001,
-1890,
-1790,
-1701,
-1620,
-1546,
-1479,
-1417,
-1360,
-1308,
-1260,
-1215,
-1173,
-1134,
-1097,
-1063,
-1030,
-1000,
-972,
-945,
-919,
-895,
-872,
-850,
-829,
-810,
-791,
-773,
-756,
-739,
-723,
-708,
-694,
-680,
-667,
-654,
-641,
-630,
-618,
-607,
-596,
-586,
-576,
-567,
-557,
-548,
-540,
-531,
-523,
-515,
-507,
-500,
-493,
-486,
-479,
-472,
-466,
-459,
-453,
-447,
-441,
-436,
-430,
-425,
-420,
-414,
-409,
-405,
-400,
-395,
-391,
-386,
-382,
-378,
-373,
-369,
-365,
-361,
-358,
-354,
-350,
-347,
-343,
-340,
-336,
-333,
-330,
-327,
-324,
-320,
-317,
-315,
-312,
-309,
-306,
-303,
-301,
-298,
-295,
-293,
-290,
-288,
-285,
-283,
-281,
-278,
-276,
-274,
-272,
-270,
-267,
-265,
-263,
-261,
-259,
-257,
-255,
-253,
-252,
-250,
-248,
-246,
-244,
-243,
-241,
-239,
-237,
-236,
-234,
-233,
-231,
-229,
-228,
-226,
-225,
-223,
-222,
-220,
-219,
-218,
-216,
-215,
-213,
-212,
-211,
-210,
-208,
-207,
-206,
-204,
-203,
-202,
-201,
-200,
-};
-*/
-
-volatile unsigned int g_speed_idx = 0;
 volatile unsigned int g_current_pos = 0;
 
 volatile unsigned int g_read_rpm = 0;
@@ -489,6 +313,19 @@ const uint8_t phase[PHASE_RESOLUTION][4] = {
                            {1,95,1,1},
                            {1,100,1,1}};
 
+
+
+const float g_delay_equations[][3] = {
+    { 53.4375,	0,	200000      },
+    { 106.875,	-261.9883041,	34000},
+    { 160.3125,	-56.14035088,	12000},
+    { 213.75 ,	-23.39181287,	6750},
+    { 427.5  ,	-5.614035088,	2950},
+    { 641.25 ,	-0.9356725146,	950 },
+    { 1068.75,	-0.4678362573,	650 },
+    { 1496.25,	-0.2339181287,	400 },
+};
+
 static void set_phase(unsigned int phase_idx) {
    phase_idx = phase_idx % PHASE_RESOLUTION;
 
@@ -577,38 +414,6 @@ void isr_rpm() {
   g_last_rpm_time = current_time;
 }
 
-static unsigned int filter_target_pos(unsigned int new_pos) {
-  unsigned int diff = new_pos > g_current_pos ? new_pos - g_current_pos :
-                                                g_current_pos - new_pos;
-  float alpha = 1;
-  //filter on pos (a full scale has SCALE_STEPS positions)
-  if (diff < 80)
-    alpha = 0.15;
-  else if (diff < 100)
-    alpha = 0.20;
-  else if (diff < 200)
-    alpha = 0.30;
-
-  unsigned int new_diff = diff*alpha;
-  bool up = new_pos > g_current_pos;
-  return up ? POS(g_current_pos + new_diff) :
-              POS(g_current_pos - new_diff);
-}
-
-/* Target pos must go until we reach the lowest speed (g_speed_idx = 0) */
-static unsigned int normalize_target_pos(unsigned int new_pos) {
-    unsigned int diff = new_pos > g_current_pos ? new_pos - g_current_pos :
-                                                g_current_pos - new_pos;
-    if (diff < 20)
-    	return g_current_pos;
-
-    bool up = new_pos > g_current_pos;
-    if (diff < g_speed_idx)
-        new_pos = up ? POS(g_current_pos + g_speed_idx) :
-                       POS(g_current_pos - g_speed_idx);
-    return new_pos;
-}
-
 // return position equivalent from 0 to SCALE_STEPS
 static inline unsigned int convert_rpm_to_pos(unsigned int rpm) {
     return POS(rpm*POS_RPM_RATE);
@@ -618,50 +423,21 @@ static unsigned int get_target_pos() {
   if (millis() - g_last_rpm_time > 180) // if below 25hz and we don't have a tick
     g_read_rpm = 0;
 
-  unsigned int new_pos = convert_rpm_to_pos(g_read_rpm);
-  //new_pos = filter_target_pos(new_pos);
-  return normalize_target_pos(new_pos);
+  return convert_rpm_to_pos(g_read_rpm);
+}
+
+float get_speed_delay(unsigned int diff) {
+  unsigned int i;
+
+  for (i = 0; i < ARRAY_SIZE(g_delay_equations); i++) {
+      if (diff < g_delay_equations[i][0])
+        return g_delay_equations[i][1]*diff + g_delay_equations[i][2];
+  }
+
+  return 50; // fasted speed
 }
 
 #if 0
-static void update_speed_idx(unsigned int new_pos){
-    unsigned int diff = new_pos > g_current_pos ? new_pos - g_current_pos :
-                                                g_current_pos - new_pos;
-    if (!diff) {
-        if (g_speed_idx) {
-            Serial.print("warning, diff is 0 and speed_idx is != 0 ");
-            Serial.println(g_speed_idx);
-            g_speed_idx = 0;
-        }
-        return;
-    }
-    enum speed_state {
-        SPEED_KEEP,
-        SPEED_BREAK,
-        SPEED_ACCELERATE,
-    } state;
-
-    if (diff - 1 == g_speed_idx)
-        state = SPEED_KEEP;
-    else if (diff <= g_speed_idx)
-        state = SPEED_BREAK;
-    else
-        state = SPEED_ACCELERATE;
-
-    if (g_speed_idx && state == SPEED_BREAK)
-        g_speed_idx--;
-    else if (g_speed_idx < ARRAY_SIZE(g_speed_delay) - 1 && state == SPEED_ACCELERATE)
-        g_speed_idx++;
-
-    //Serial.print("rpm ");
-    //Serial.print(g_read_rpm);
-    //Serial.print(" diff ");
-    //Serial.print(diff);
-    //Serial.print(" speed idx ");
-    //Serial.println(g_speed_idx);
-}
-#endif
-
 void get_rpm_from_serial() {
   const unsigned int MAX_MESSAGE_LENGTH = 12;
  //Check to see if anything is available in the serial receive buffer
@@ -698,39 +474,47 @@ void get_rpm_from_serial() {
  }
 }
 
-/*
-void loop() {
-  //get_rpm_from_serial();
+void check_delay_calculus() {
+  float delay_calc = get_speed_delay(52);
+  Serial.print("calculo de 52 é ");
+  Serial.println(delay_calc);
+  delay_calc = get_speed_delay(105);
+  Serial.print("calculo de 105 é ");
+  Serial.println(delay_calc);
+  delay_calc = get_speed_delay(159);
+  Serial.print("calculo de 159 é ");
+  Serial.println(delay_calc);
+  delay_calc = get_speed_delay(212);
+  Serial.print("calculo de 212 é ");
+  Serial.println(delay_calc);
+  delay_calc = get_speed_delay(426);
+  Serial.print("calculo de 426 é ");
+  Serial.println(delay_calc);
+  delay_calc = get_speed_delay(640);
+  Serial.print("calculo de 640 é ");
+  Serial.println(delay_calc);
+  delay_calc = get_speed_delay(1067);
+  Serial.print("calculo de 1067 é ");
+  Serial.println(delay_calc);
+  delay_calc = get_speed_delay(1495);
+  Serial.print("calculo de 1495 é ");
+  Serial.println(delay_calc);
+  delay_calc = get_speed_delay(1500);
+  Serial.print("calculo de 1500 é ");
+  Serial.println(delay_calc);
 
-  volatile unsigned int target_pos = get_target_pos();
-  update_speed_idx(target_pos);
-  go_to_pos_dir(target_pos);
+  while(true);
+}
+#endif
 
-  //if (target_pos != g_current_pos) {
-  //  Serial.print("rpm ");
-  //  Serial.print(g_read_rpm);
-  //  Serial.print(" cur_pos ");
-  //  Serial.print(g_current_pos);
-  //  Serial.print(" target_pos ");
-  //  Serial.print(target_pos);
-  //  Serial.print(" g_speed_idx ");
-  //  Serial.print(g_speed_idx);
-  //  Serial.print(" delay ");
-  //  Serial.println(g_speed_delay[g_speed_idx]);
-  //}
-
-  delayMicroseconds(g_speed_delay[g_speed_idx]);
-}*/
 
 void loop() {
   //get_rpm_from_serial();
   volatile unsigned int new_pos = get_target_pos();
   unsigned int diff = new_pos > g_current_pos ? new_pos - g_current_pos :
                                                 g_current_pos - new_pos;
-  if (diff < 20)
-     return;
 
-  unsigned int delay_us = 120000/diff;
+  float delay_us = get_speed_delay(diff);
 
   //Serial.print("rpm ");
   //Serial.print(g_read_rpm);
@@ -740,9 +524,7 @@ void loop() {
   //Serial.println(delay_us);
 
   go_to_pos_dir(new_pos);
-
-  delayMicroseconds(50);
-  //delayMicroseconds(delay_us);
+  delayMicroseconds(delay_us);
 }
 
 /*
