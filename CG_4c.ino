@@ -5,8 +5,8 @@
 // tempo de deslocamento do ponteiro da varredurar para o zero real.
 // ultima atualização 24/10/2022
 
-#define SCALE_8000
-//#define SCALE_6000
+//#define SCALE_8000
+#define SCALE_6000
 
 #if defined(SCALE_8000)
     #define SET_MAX_RPM 8000 // ao mudar este valor, atualizar POS_RPM_RATE abaixo
@@ -316,7 +316,7 @@ const uint8_t phase[PHASE_RESOLUTION][4] = {
 
 
 const float g_delay_equations[][3] = {
-    { 53.4375,	0,	200000      },
+    { 53.4375,	0,	20000      },
     { 106.875,	-261.9883041,	34000},
     { 160.3125,	-56.14035088,	12000},
     { 213.75 ,	-23.39181287,	6750},
@@ -405,7 +405,6 @@ void isr_rpm() {
   if (tick < 3)
     return;
 
-
   g_read_rpm = ((tick * 60000)/2) / (lapsed_time);
   if (g_read_rpm > SET_MAX_RPM)
     g_read_rpm = SET_MAX_RPM;
@@ -420,8 +419,8 @@ static inline unsigned int convert_rpm_to_pos(unsigned int rpm) {
 }
 
 static unsigned int get_target_pos() {
-  if (millis() - g_last_rpm_time > 180) // if below 25hz and we don't have a tick
-    g_read_rpm = 0;
+  //if (millis() - g_last_rpm_time > 1000) // if below 25hz and we don't have a tick
+  //  g_read_rpm = 0;
 
   return convert_rpm_to_pos(g_read_rpm);
 }
@@ -514,16 +513,8 @@ void loop() {
   unsigned int diff = new_pos > g_current_pos ? new_pos - g_current_pos :
                                                 g_current_pos - new_pos;
 
-  float delay_us = get_speed_delay(diff);
-
-  //Serial.print("rpm ");
-  //Serial.print(g_read_rpm);
-  //Serial.print(" target_pos ");
-  //Serial.print(new_pos);
-  //Serial.print(" delay ");
-  //Serial.println(delay_us);
-
   go_to_pos_dir(new_pos);
+  float delay_us = get_speed_delay(diff);
   delayMicroseconds(delay_us);
 }
 
