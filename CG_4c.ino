@@ -431,8 +431,8 @@ float get_speed_delay(unsigned int diff) {
         return g_delay_equations[i][1]*diff + g_delay_equations[i][2];
   }
 
-  Serial.println("max speed");
-  return 50; // fasted speed
+  // fasted speed is limited to the delay of last point on the last equation
+  return g_delay_equations[i][1]*g_delay_equations[i][0] + g_delay_equations[i][2];
 }
 
 #if 0
