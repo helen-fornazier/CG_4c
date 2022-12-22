@@ -24,6 +24,7 @@
 
 #define SCALE_STEPS 1710 // ao mudar este valor, atualizar POS_RPM_RATE
 #define CALIB_STEPS (SCALE_STEPS + 400) // valor a mais de varredura de calibração
+#define CALIB_STEPS_NEG 30 // O quanto pra baixo do zero a calibracao afunda antes de voltar no zero
 #define PHASE_RESOLUTION 256
 #define CALIB_STEP_DELAY 400
 
@@ -324,7 +325,10 @@ const float g_delay_equations[][3] = {
 { 1496.25,	-0.04678362573,	80              },
 };
 
-static void set_phase(unsigned int phase_idx) {
+static void set_phase(int phase_idx) {
+   while (phase_idx < 0)
+      phase_idx += PHASE_RESOLUTION;
+
    phase_idx = phase_idx % PHASE_RESOLUTION;
 
    //Serial.print("set_phase:");
@@ -357,14 +361,20 @@ static void go_to_pos_dir(unsigned int pos) {
 }
 
 static void calibrate() {
-   unsigned int i;
+   int i;
    for (i = 0; i < CALIB_STEPS; i++) {
       delayMicroseconds(CALIB_STEP_DELAY);
       set_phase(i);
    }
 
-   while(i--) {
+   while(i-- > -CALIB_STEPS_NEG) {
       delayMicroseconds(CALIB_STEP_DELAY);
+      set_phase(i);
+   }
+
+   // Volte suavemente ao zero
+   while(i++) {
+      delayMicroseconds(get_speed_delay(1));
       set_phase(i);
    }
 }
