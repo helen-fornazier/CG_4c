@@ -5,8 +5,8 @@
 // tempo de deslocamento do ponteiro da varredurar para o zero real.
 // ultima atualização 24/10/2022
 
-//#define SCALE_8000
-#define SCALE_6000
+#define SCALE_8000
+//#define SCALE_6000
 
 #if defined(SCALE_8000)
     #define SET_MAX_RPM 8000 // ao mudar este valor, atualizar POS_RPM_RATE abaixo
@@ -313,17 +313,15 @@ const uint8_t phase[PHASE_RESOLUTION][4] = {
                            {1,95,1,1},
                            {1,100,1,1}};
 
-
-
 const float g_delay_equations[][3] = {
-    { 53.4375,	0,	20000      },
-    { 106.875,	-261.9883041,	34000},
-    { 160.3125,	-56.14035088,	12000},
-    { 213.75 ,	-23.39181287,	6750},
-    { 427.5  ,	-5.614035088,	2950},
-    { 641.25 ,	-0.9356725146,	950 },
-    { 1068.75,	-0.4678362573,	650 },
-    { 1496.25,	-0.2339181287,	400 },
+{ 53.4375,	0,	20000		},
+{ 106.875,	-261.9883041,	34000   },
+{ 160.3125,	-56.14035088,	12000   },
+{ 213.75,	-31.8128655,	8100    },
+{ 427.5,	-4.444444444,	2250    },
+{ 641.25,	-0.9356725146,	750     },
+{ 1068.75,	-0.2339181287,	300     },
+{ 1496.25,	-0.04678362573,	100     },
 };
 
 static void set_phase(unsigned int phase_idx) {
@@ -419,8 +417,8 @@ static inline unsigned int convert_rpm_to_pos(unsigned int rpm) {
 }
 
 static unsigned int get_target_pos() {
-  //if (millis() - g_last_rpm_time > 1000) // if below 25hz and we don't have a tick
-  //  g_read_rpm = 0;
+  if (millis() - g_last_rpm_time > 200) // if below 3 ticks time
+    g_read_rpm = 0;
 
   return convert_rpm_to_pos(g_read_rpm);
 }
@@ -433,6 +431,7 @@ float get_speed_delay(unsigned int diff) {
         return g_delay_equations[i][1]*diff + g_delay_equations[i][2];
   }
 
+  Serial.println("max speed");
   return 50; // fasted speed
 }
 
