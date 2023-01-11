@@ -1,9 +1,9 @@
 
 // https://github.com/helen-fornazier/CG_4c/blob/master/CG_4c.ino
 
-// Pontei voltar para o zero quando o pino de rpm não tiver rotação.
-// tempo de deslocamento do ponteiro da varredurar para o zero real.
 // ultima atualização 24/10/2022
+//                    28/12/2022
+//                    29/12/2022  // final
 
 #define SCALE_8000
 //#define SCALE_6000
@@ -11,28 +11,32 @@
 #if defined(SCALE_8000)
     #define SET_MAX_RPM 8000 // ao mudar este valor, atualizar POS_RPM_RATE abaixo
     //#define POS_RPM_RATE ((SCALE_STEPS/SET_MAX_RPM))
-    #define POS_RPM_RATE (0.213) // compilador não está colaborando, fazendo a conta na mão
+    #define POS_RPM_RATE (0.212) // compilador não está colaborando, fazendo a conta na mão
                                  // fator de calibração fundo de escala.
-                                 //  é o resultado da divisão 1710/8000
+                                 //  é o resultado da divisão 1710/8000 = 0.213
+                                 // .212 melhor fator calibrado na pratica
+                                 // calibrado a 500 rpm e 7500 rpm.
+
 #elif defined(SCALE_6000)
     #define SET_MAX_RPM 6000 // ao mudar este valor, atualizar POS_RPM_RATE abaixo
     //#define POS_RPM_RATE ((SCALE_STEPS/SET_MAX_RPM))
-    #define POS_RPM_RATE (0.285) // compilador não está colaborando, fazendo a conta na mão
+    #define POS_RPM_RATE (0.283) // compilador não está colaborando, fazendo a conta na mão
                                  // fator de calibração fundo de escala.
-                                 //  é o resultado da divisão 1710/8000
+                                 // é o resultado da divisão 1710/6000 = .285
+                                 // .283 melhor fator calibrado na pratica
+                                 // calibrado a 500 rpm e 5500 rpm
 #endif
 
 #define SCALE_STEPS 1710 // ao mudar este valor, atualizar POS_RPM_RATE
-#define CALIB_STEPS (SCALE_STEPS + 400) // valor a mais de varredura de calibração
-#define CALIB_STEPS_NEG 30 // O quanto pra baixo do zero a calibracao afunda antes de voltar no zero
+#define CALIB_STEPS (SCALE_STEPS + 320) // valor a mais de varredura de calibração
+#define CALIB_STEPS_NEG 70 // O quanto pra baixo do zero a calibracao afunda antes de voltar no zero
 #define PHASE_RESOLUTION 256
-#define CALIB_STEP_DELAY 400
+#define CALIB_STEP_DELAY 360
 
-#define CORRECT_CLOCK 5
-
+#define CORRECT_CLOCK 5      // complemento da calibração da função Mills para trabalhar com outros
+                             // valores de PWM
 #define micros() (micros() >> CORRECT_CLOCK)
 #define millis() (millis() >> CORRECT_CLOCK)
-
 
 void fixDelay(uint32_t ms) {
   delay(ms << CORRECT_CLOCK);
@@ -43,7 +47,7 @@ static inline unsigned int POS(int pos) {
    if (pos > SCALE_STEPS) return SCALE_STEPS;
    return pos;
 }
-
+// Configura os pinos do Motor de Passo
 int PWM1_PIN = 3;  // verde
 int PWM2_PIN = 5;  // azul
 int PHASE1_PIN = 6; //amarelo
@@ -52,7 +56,6 @@ int PHASE2_PIN = 7; // roxo
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof(*(a)))
 
 volatile unsigned int g_current_pos = 0;
-
 volatile unsigned int g_read_rpm = 0;
 volatile unsigned long g_last_rpm_time = 0;
 
@@ -314,17 +317,40 @@ const uint8_t phase[PHASE_RESOLUTION][4] = {
                            {1,95,1,1},
                            {1,100,1,1}};
 
+// Tabela de aceleração do Ponteiro criada através da planilha Excell
 const float g_delay_equations[][3] = {
-{ 42.75,	0,	15000			},
-{ 106.875,	-171.539961,	22333.33333     },
-{ 160.3125,	-52.39766082,	9600            },
-{ 213.75,	-11.22807018,	3000            },
-{ 427.5,	-2.105263158,	1050            },
-{ 641.25,	-0.4678362573,	350             },
-{ 1068.75,	-0.04678362573,	80              },
-{ 1496.25,	-0.04678362573,	80              },
+/*
+{ 42.75,  0,  15000     },
+{ 106.875,  -171.539961,  22333.33333     },
+{ 160.3125, -52.39766082, 9600            },
+{ 213.75, -11.22807018, 3000            },
+{ 427.5,  -2.105263158, 1050            },
+{ 641.25, -0.4678362573,  350             },
+{ 1068.75,  -0.04678362573, 80              },
+{ 1496.25,  -0.04678362573, 80              },
+*/
+{ 19,     0,      11000   },
+{ 32,    -155,    14000   },
+{ 53,   -140,     13500   },
+{ 106,   -56,      9000   },
+{ 160,   -33,     6600    },
+{ 213,   -19,     4200    },
+{ 427,   -0.23,   250     },
+{ 855,   -0.06,   175     },
+{ 1710,  -0.03,   150     },
 };
-
+/*
+const float g_delay_equations[][3] = {
+{ 42.75,  0,  15000     },
+{ 106.875,  -171.539961,  22333.33333     },
+{ 160.3125, -52.39766082, 9600            },
+{ 213.75, -11.22807018, 3000            },
+{ 427.5,  -2.105263158, 1050            },
+{ 641.25, -0.4678362573,  350             },
+{ 1068.75,  -0.04678362573, 80              },
+{ 1496.25,  -0.04678362573, 80              },
+};
+*/
 static void set_phase(int phase_idx) {
    while (phase_idx < 0)
       phase_idx += PHASE_RESOLUTION;
@@ -360,13 +386,15 @@ static void go_to_pos_dir(unsigned int pos) {
    g_current_pos = small_pos;
 }
 
+// Calibra o Ponteiro através da varredura.
 static void calibrate() {
-   int i;
+   int i; // Ponteiro vai para o fim de curso direita
    for (i = 0; i < CALIB_STEPS; i++) {
       delayMicroseconds(CALIB_STEP_DELAY);
       set_phase(i);
    }
-
+   delayMicroseconds(100);
+   // Ponteiro vai para o fim de curso da esquerda
    while(i-- > -CALIB_STEPS_NEG) {
       delayMicroseconds(CALIB_STEP_DELAY);
       set_phase(i);
